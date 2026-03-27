@@ -40,7 +40,7 @@ def load_csv(file_path): # load a CSV file
 def split_development_data(df):
 
     print("Creating age bins.")
-    age_bins = pd.qcut(df["age"], 5, duplicates="drop")  # divide ages into 5 groups so the split is balanced
+    age_bins = pd.qcut(df["age"], 5, duplicates="drop")  # divide ages into 5 groups the split is balanced
 
     # split 80% train, 20% validation
     train_df, val_df = train_test_split(df, test_size=0.2, random_state=42, stratify=age_bins)
@@ -212,7 +212,7 @@ def exploratory_analysis(train_df, val_df, evaluation_df, development_df):
     print_stats_table(train_df, val_df, evaluation_df)
     plot_age_histogram(development_df["age"])
     plot_age_by_split(train_df, val_df, evaluation_df)
-    print("\n--- Missing Values ---")
+    print("\nMissing Values")
     check_missing_values(train_df)
     dataset_summary(train_df, "Training set")
     dataset_summary(val_df, "Validation set")
@@ -697,28 +697,21 @@ def evaluate_in_evaluation_data(model, evaluation_df, best_features):
 
 
 #BONUS A
-
-
-
- 
 def optuna_tune_model(model_name, pipeline, X_train, y_train, n_trials=50, cv=5):
- 
+
     def objective(trial):
- 
-        # suggest hyperparameters for each model
+
         if model_name == "elasticnet":
             pipeline.set_params(
-                model__alpha    = trial.suggest_float("alpha",    0.001, 10,   log=True),
+                model__alpha    = trial.suggest_float("alpha",    0.001, 10, log=True),
                 model__l1_ratio = trial.suggest_float("l1_ratio", 0.1,  1.0)
             )
- 
         elif model_name == "svr":
             pipeline.set_params(
                 model__C       = trial.suggest_float("C", 0.1, 500, log=True),
                 model__epsilon = trial.suggest_categorical("epsilon", [0.01, 0.1, 0.5, 1.0]),
                 model__kernel  = trial.suggest_categorical("kernel",  ["rbf", "linear"])
             )
- 
         elif model_name == "bayesianridge":
             pipeline.set_params(
                 model__alpha_1  = trial.suggest_float("alpha_1",  1e-7, 1e-3, log=True),
@@ -726,23 +719,25 @@ def optuna_tune_model(model_name, pipeline, X_train, y_train, n_trials=50, cv=5)
                 model__lambda_1 = trial.suggest_float("lambda_1", 1e-7, 1e-3, log=True),
                 model__lambda_2 = trial.suggest_float("lambda_2", 1e-7, 1e-3, log=True)
             )
- 
-        # calculate cross-validated RMSE and return it (optuna will try to minimize it)
+
+        # υπολογίζει RMSE με cross validation - ίδιο με το error στο παράδειγμα
         scores = cross_val_score(pipeline, X_train, y_train,
                                  scoring="neg_root_mean_squared_error", cv=cv)
         return -scores.mean()
- 
-    # run the study
+
+    # ακριβώς όπως το παράδειγμα - create_study + optimize
     study = optuna.create_study(direction="minimize")
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
- 
-    # refit with best params
+
+    # refit με τις καλύτερες παραμέτρους
     pipeline.fit(X_train, y_train)
- 
-    print(f"Best RMSE for {model_name}: {study.best_value:.4f}")
- 
+
+    print(f"Best RMSE: {study.best_value:.4f}")
+    print(f"Best params: {study.best_params}")
+
     return pipeline, study
- 
+
+
 
 #BONUS B
 def create_sex_label(train_df, evaluation_df):
