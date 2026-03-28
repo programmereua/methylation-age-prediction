@@ -26,6 +26,8 @@ from sklearn.metrics import accuracy_score, f1_score, matthews_corrcoef, roc_auc
 from mrmr import mrmr_classif
 import optuna
 from sklearn.model_selection import cross_val_score
+import os
+import pickle
 
 #TASK 1.1
 def load_csv(file_path): # load a CSV file
@@ -179,8 +181,8 @@ def plot_age_histogram(age):
     plt.xlabel('Age')
     plt.ylabel('Count')
     plt.title('Age distribution')
+    plt.savefig('age_histogram_development.png', dpi=150, bbox_inches='tight')
     plt.show()
-    
     
 #TASK 1.3
 def print_stats_table(train_df, val_df, evaluation_df):
@@ -205,9 +207,10 @@ def plot_age_by_split(train_df, val_df, evaluation_df):
         ax.set_xlabel("Age")
         ax.set_ylabel("Count")
     plt.tight_layout()
+    plt.savefig('age_histogram_splits.png', dpi=150, bbox_inches='tight')
     plt.show()
-
-
+    
+    
 def exploratory_analysis(train_df, val_df, evaluation_df, development_df):
     print_stats_table(train_df, val_df, evaluation_df)
     plot_age_histogram(development_df["age"])
@@ -268,7 +271,18 @@ def evaluate_model(y_val, y_pred):
     print(f"MAE: {full_mae:.4f} (95% CI: {mae_ci[0]:.4f} - {mae_ci[1]:.4f})")
     print(f"R^2: {full_r2:.4f} (95% CI: {r2_ci[0]:.4f} - {r2_ci[1]:.4f})")
     print(f"Pearson r: {full_r:.4f} (95% CI: {pearson_ci[0]:.4f} - {pearson_ci[1]:.4f})")
-    return rmse_scores, r2_scores
+    return {
+    'rmse'        : full_rmse,
+    'rmse_ci'     : rmse_ci,
+    'rmse_scores' : rmse_scores,
+    'mae'         : full_mae,
+    'mae_ci'      : mae_ci,
+    'r2'          : full_r2,
+    'r2_ci'       : r2_ci,
+    'r2_scores'   : r2_scores,
+    'r'           : full_r,
+    'pearson_ci'  : pearson_ci
+    }
 
 #TASK 2.2
 
@@ -317,23 +331,47 @@ def train_BayesianRidge_model(X_train, y_train, X_val):
     print("Predictions made on the val data.")
 
     return y_pred
-    
-   
-def plot_bootstrap_boxplots(all_rmse, all_r2, model_names):
+
+
+def print_results_table(results_dict):
+    rows = []
+    for model_name, res in results_dict.items():
+        rows.append({
+            "Model"         : model_name,
+            "RMSE (CI)"     : f"{res['rmse']:.3f} ({res['rmse_ci'][0]:.3f} - {res['rmse_ci'][1]:.3f})",
+            "MAE (CI)"      : f"{res['mae']:.3f} ({res['mae_ci'][0]:.3f} - {res['mae_ci'][1]:.3f})",
+            "R² (CI)"       : f"{res['r2']:.3f} ({res['r2_ci'][0]:.3f} - {res['r2_ci'][1]:.3f})",
+            "Pearson r (CI)": f"{res['r']:.3f} ({res['pearson_ci'][0]:.3f} - {res['pearson_ci'][1]:.3f})"
+        })
+    df = pd.DataFrame(rows)
+    print("\nModel Performance Summary:\n")
+    print(df.to_string(index=False))
+
+
+def plot_bootstrap_boxplots(results_dict):
+    model_names = list(results_dict.keys())
+    rmse_data   = [results_dict[m]["rmse_scores"] for m in model_names]
+    r2_data     = [results_dict[m]["r2_scores"]   for m in model_names]
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    # left plot - RMSE
-    axes[0].boxplot(all_rmse, labels=model_names)
-    axes[0].set_title("RMSE")
+    axes[0].boxplot(rmse_data)
+    axes[0].set_xticks(range(1, len(model_names) + 1))
+    axes[0].set_xticklabels(model_names)
+    axes[0].set_title("Bootstrap RMSE Distribution")
+    axes[0].set_ylabel("RMSE (years)")
+    axes[0].set_xlabel("Model")
 
-    # right plot - R2
-    axes[1].boxplot(all_r2, labels=model_names)
-    axes[1].set_title("R2")
+    axes[1].boxplot(r2_data)
+    axes[1].set_xticks(range(1, len(model_names) + 1))
+    axes[1].set_xticklabels(model_names)
+    axes[1].set_title("Bootstrap R² Distribution")
+    axes[1].set_ylabel("R²")
+    axes[1].set_xlabel("Model")
 
     plt.tight_layout()
+    plt.savefig('bootstrap_boxplots.png', dpi=150, bbox_inches='tight')
     plt.show()
-
     
 #TASK 3.1
 def stability_selection(train_df):
@@ -384,18 +422,18 @@ def stability_selection(train_df):
 
     return stable, counts
      
-     
-def plot_frequency(counts):
 
+def plot_frequency(counts):
+    
     plt.figure(figsize=(8,5))
     plt.hist(counts.values, bins=20, color="steelblue", edgecolor="black")
     plt.axvline(25, color="red", linestyle="--", label="threshold = 25")
     plt.xlabel("Times selected (out of 50)")
     plt.ylabel("Number of CpGs")
-    plt.title("How often each CpG was picked")
+    plt.title("Selection frequency distribution across CpG features")
     plt.legend()
+    plt.savefig('stability_selection.png', dpi=150, bbox_inches='tight')
     plt.show()
-    
     
 # TASK 3.2 Minimum Redundancy Maximum Relevance mRMR Feature Selection
 
@@ -452,6 +490,7 @@ def choose_best_k(train_df, val_df):
     plt.xlabel("K (number of features)")
     plt.ylabel("Validation RMSE")
     plt.title("mRMR - How many features do we need")
+    plt.savefig('mrmr_k_selection.png', dpi=150, bbox_inches='tight')
 
     plt.show()
 
@@ -477,57 +516,85 @@ def run_mrmr(train_df, K):
     return selected_features
 
 
-
 def plot_overlap(features1, features2):
+    
+    #to compare them  
     set1 = set(features1)
     set2 = set(features2)
-    overlap   = set1 & set2
-    only_set1 = set1 - set2
-    only_set2 = set2 - set1
-
-    print(f"Stability only : {len(only_set1)}")
-    print(f"Overlap        : {len(overlap)}")
-    print(f"mRMR only      : {len(only_set2)}")
-
+    
+    # find what they share and what features not
+    only_stability = set1 - set2
+    overlap        = set1 & set2
+    only_mrmr      = set2 - set1
+    
+    print('Stability only :', len(only_stability))
+    print('Overlap        :', len(overlap))
+    print('mRMR only      :', len(only_mrmr))
+    
+    # bar chart
     plt.figure(figsize=(6, 5))
-    plt.bar(["Stability only", "Overlap", "mRMR only"],
-            [len(only_set1), len(overlap), len(only_set2)],
-            color=["steelblue", "green", "orange"], edgecolor="black")
-    plt.title("Overlap between Stability and mRMR")
-    plt.ylabel("Number of features")
-    plt.show()   
- 
-
+    plt.bar(
+        ['Stability only', 'Overlap', 'mRMR only'],
+        [len(only_stability), len(overlap), len(only_mrmr)],
+        color=['steelblue', 'green', 'orange'],
+        edgecolor='black'
+    )
+    plt.title('Overlap between Stability and mRMR')
+    plt.ylabel('Number of features')
+    plt.xlabel('Feature group')
+    plt.savefig('feature_overlap.png', dpi=150, bbox_inches='tight')
+    plt.show()
+    
 #Task 3.3
-
 def compare_feature_sets(train_df, val_df, stable_cpg_cols, mrmr_features):
-
-    results = {} 
-
+    
+    results = {}
+    
     for name, features in [("Stability", stable_cpg_cols), ("mRMR", mrmr_features)]:
-         
+        
+        # preprocess using only the selected features
         preprocessor = build_preprocessor(features, [])
         X_train_p = preprocessor.fit_transform(train_df[features])
-        X_val_p = preprocessor.transform(val_df[features])
+        X_val_p   = preprocessor.transform(val_df[features])
+        
+        # get age values
         y_train = train_df["age"].values
-        y_val  = val_df["age"].values
-
+        y_val   = val_df["age"].values
+        
+        # train 
         y_pred = train_BayesianRidge_model(X_train_p, y_train, X_val_p)
-
+        
+        #  metrics
         rmse = mean_squared_error(y_val, y_pred) ** 0.5
-        r2 = r2_score(y_val, y_pred)
-
-        print(f"{name}: RMSE={rmse:.4f}, R^2={r2:.4f}")
-
-        results[name] = {"rmse": rmse, "r2": r2, "features": features}
-
-
+        r2   = r2_score(y_val, y_pred)
+        
+        # results
+        results[name] = {
+            "rmse"    : rmse,
+            "r2"      : r2,
+            "features": features,
+            "n"       : len(features)  # how many features were selected
+        }
+        
+        print(f"{name}: {len(features)} features, RMSE={rmse:.4f}, R2={r2:.4f}")
+    
+   
+    print("\nComparison Table")
+    print(f"{'Method':<12} {'N features':<12} {'RMSE':<10} {'R2'}")
+    for name, res in results.items():
+        print(f"{name:<12} {res['n']:<12} {res['rmse']:.4f}    {res['r2']:.4f}")
+    
+    # pick the lowest RMSE
     best_name = min(results, key=lambda x: results[x]["rmse"])
-    print(f"\nBest method: {best_name} with RMSE={results[best_name]['rmse']:.4f}")
+    print(f"\nBest method: {best_name}")
+    print(f"RMSE: {results[best_name]['rmse']:.4f}")
+    print(f"Number of features: {results[best_name]['n']}")
+    print(f"This feature we will use for  Task 4")
     
     return results[best_name]["features"], best_name
 
 
+    
 # TASK 4.1
 def tune_model(development_df, best_features):
 
@@ -693,52 +760,164 @@ def evaluate_in_evaluation_data(model, evaluation_df, best_features):
         "Pearson_CI": pearson_ci
     }
 
+#ΤΑSK 4.3
 
+def save_best_model(elastic_results, svr_results, bayes_results, elastic_best, svr_best, bayes_best):
+    
+    # compare RMSE means and pick the best model
+    results_summary = {
+        'ElasticNet'   : elastic_results['RMSE_mean'],
+        'SVR'          : svr_results['RMSE_mean'],
+        'BayesianRidge': bayes_results['RMSE_mean']
+    }
+    
+    # the best model is the one with the lowest RMSE
+    best_model_name = min(results_summary, key=results_summary.get)
+    print('Best model:', best_model_name)
+    print('RMSE:', round(results_summary[best_model_name], 4))
+    
+    # get the actual model object
+    all_models = {
+        'ElasticNet'   : elastic_best,
+        'SVR'          : svr_best,
+        'BayesianRidge': bayes_best
+    }
+    best_model_obj = all_models[best_model_name]
+    
+    # create the models folder if it doesnt exist
+    os.makedirs('../models', exist_ok=True)
+    
+    # save the best model to a file using pickle
+    filename = '../models/best_model.pkl'
+    with open(filename, 'wb') as file:
+        pickle.dump(best_model_obj, file, protocol=pickle.HIGHEST_PROTOCOL)
+    print('Model saved to', filename)
+    
+    # load it back just to make sure it was saved correctly
+    with open(filename, 'rb') as file:
+        loaded_model = pickle.load(file)
+    print('Model loaded back successfully!')
+    
+    return best_model_name, best_model_obj
 
 
 #BONUS A
+
+# BONUS A - Optuna Hyperparameter Optimization
 def optuna_tune_model(model_name, pipeline, X_train, y_train, n_trials=50, cv=5):
-
+    
+    # optuna will call this function many times
+    # each time it tries different hyperparameters and we return the RMSE
     def objective(trial):
-
+        
+        # for each model we try different hyperparameters
         if model_name == "elasticnet":
-            pipeline.set_params(
-                model__alpha    = trial.suggest_float("alpha",    0.001, 10, log=True),
-                model__l1_ratio = trial.suggest_float("l1_ratio", 0.1,  1.0)
-            )
+            alpha    = trial.suggest_float("alpha",    0.001, 10,  log=True)
+            l1_ratio = trial.suggest_float("l1_ratio", 0.1,   1.0)
+            pipeline.set_params(model__alpha=alpha, model__l1_ratio=l1_ratio)
+            
         elif model_name == "svr":
-            pipeline.set_params(
-                model__C       = trial.suggest_float("C", 0.1, 500, log=True),
-                model__epsilon = trial.suggest_categorical("epsilon", [0.01, 0.1, 0.5, 1.0]),
-                model__kernel  = trial.suggest_categorical("kernel",  ["rbf", "linear"])
-            )
+            C       = trial.suggest_float("C", 0.1, 500, log=True)
+            epsilon = trial.suggest_categorical("epsilon", [0.01, 0.1, 0.5, 1.0])
+            kernel  = trial.suggest_categorical("kernel",  ["rbf", "linear"])
+            pipeline.set_params(model__C=C, model__epsilon=epsilon, model__kernel=kernel)
+            
         elif model_name == "bayesianridge":
+            alpha_1  = trial.suggest_float("alpha_1",  1e-7, 1e-3, log=True)
+            alpha_2  = trial.suggest_float("alpha_2",  1e-7, 1e-3, log=True)
+            lambda_1 = trial.suggest_float("lambda_1", 1e-7, 1e-3, log=True)
+            lambda_2 = trial.suggest_float("lambda_2", 1e-7, 1e-3, log=True)
             pipeline.set_params(
-                model__alpha_1  = trial.suggest_float("alpha_1",  1e-7, 1e-3, log=True),
-                model__alpha_2  = trial.suggest_float("alpha_2",  1e-7, 1e-3, log=True),
-                model__lambda_1 = trial.suggest_float("lambda_1", 1e-7, 1e-3, log=True),
-                model__lambda_2 = trial.suggest_float("lambda_2", 1e-7, 1e-3, log=True)
+                model__alpha_1=alpha_1, model__alpha_2=alpha_2,
+                model__lambda_1=lambda_1, model__lambda_2=lambda_2
             )
-
-        # υπολογίζει RMSE με cross validation - ίδιο με το error στο παράδειγμα
+        
+        # calculate the RMSE using cross validation
+        # cross_val_score returns negative values so we flip the sign
         scores = cross_val_score(pipeline, X_train, y_train,
                                  scoring="neg_root_mean_squared_error", cv=cv)
-        return -scores.mean()
-
-    # ακριβώς όπως το παράδειγμα - create_study + optimize
+        rmse = -scores.mean()
+        return rmse
+    
+    # create the study and start searching
+    print(f"Starting Optuna search for {model_name}...")
+    print(f"We will try {n_trials} different combinations of hyperparameters")
     study = optuna.create_study(direction="minimize")
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
-
-    # refit με τις καλύτερες παραμέτρους
+    
+    # set the best hyperparameters and refit on full training data
+    best = study.best_params
+    if model_name == "elasticnet":
+        pipeline.set_params(model__alpha=best["alpha"], model__l1_ratio=best["l1_ratio"])
+    elif model_name == "svr":
+        pipeline.set_params(model__C=best["C"], model__epsilon=best["epsilon"], model__kernel=best["kernel"])
+    elif model_name == "bayesianridge":
+        pipeline.set_params(
+            model__alpha_1=best["alpha_1"], model__alpha_2=best["alpha_2"],
+            model__lambda_1=best["lambda_1"], model__lambda_2=best["lambda_2"]
+        )
+    
+    # train the final model with the best hyperparameters
     pipeline.fit(X_train, y_train)
-
-    print(f"Best RMSE: {study.best_value:.4f}")
-    print(f"Best params: {study.best_params}")
-
+    
+    print(f"Done! Best RMSE found: {study.best_value:.4f}")
+    print(f"Best hyperparameters: {study.best_params}")
+    
     return pipeline, study
 
 
+def plot_optuna_history(study, model_name):
+    
+    # get the RMSE value for each trial
+    trial_numbers = [t.number for t in study.trials]
+    trial_rmse    = [t.value  for t in study.trials]
+    
+    plt.figure(figsize=(8, 4))
+    
+    # plot each trial as a dot
+    plt.plot(trial_numbers, trial_rmse, 
+             marker='o', color='steelblue', alpha=0.6, label='Each trial')
+    
+    # red line showing the best RMSE found
+    plt.axhline(study.best_value, color='red', linestyle='--',
+                label=f'Best RMSE = {study.best_value:.4f}')
+    
+    plt.xlabel('Trial number')
+    plt.ylabel('RMSE')
+    plt.title(f'Optuna search history - {model_name}')
+    plt.legend()
+    plt.savefig(f'optuna_history_{model_name}.png', dpi=150, bbox_inches='tight')
+    plt.show()
 
+
+def print_optuna_comparison(elastic_results, svr_results, bayes_results,
+                             elastic_study, svr_study, bayes_study):
+    
+    print("\nRandomSearch vs Optuna - Head to Head:")
+    print(f"{'Model':<15} {'RandomSearch':<15} {'Optuna':<15} {'Delta':<10} {'Winner'}")
+    print("-" * 65)
+    
+    models = [
+        ("ElasticNet",    elastic_results, elastic_study),
+        ("SVR",           svr_results,     svr_study),
+        ("BayesianRidge", bayes_results,   bayes_study)
+    ]
+    
+    for name, rs_res, opt_study in models:
+        rs_rmse  = rs_res['RMSE_mean']
+        opt_rmse = opt_study.best_value
+        delta    = rs_rmse - opt_rmse
+        
+        # positive delta means optuna was better
+        if opt_rmse < rs_rmse:
+            winner = "Optuna"
+        else:
+            winner = "RandomSearch"
+        
+        print(f"{name:<15} {rs_rmse:<15.4f} {opt_rmse:<15.4f} {delta:<10.4f} {winner}")
+
+        
 #BONUS B
 def create_sex_label(train_df, evaluation_df):
 
@@ -784,6 +963,8 @@ def plot_sex_age_overlap(age_features, sex_features):
     plt.title("Age features vs Sex features - are they different?")
     plt.ylabel("Number of CpGs")
     plt.tight_layout()
+    plt.savefig('sex_age_overlap.png', dpi=150, bbox_inches='tight')
+
     plt.show()
     
 def train_classifiers(X_train, y_train):
@@ -843,100 +1024,12 @@ def evaluate_classifier(model, X_eval, y_eval):
     print(f"ROC-AUC  : {roc_auc_score(y_eval, y_pred_prob_full):.4f}  (95% CI: {np.percentile(roc_scores, 2.5):.4f} - {np.percentile(roc_scores, 97.5):.4f})")
     print(f"PR-AUC   : {average_precision_score(y_eval, y_pred_prob_full):.4f}  (95% CI: {np.percentile(pr_scores, 2.5):.4f} - {np.percentile(pr_scores, 97.5):.4f})")
 
-    return acc_scores, f1_scores, mcc_scores, roc_scores
+    return {
+    'acc_scores': acc_scores,
+    'f1_scores' : f1_scores,
+    'mcc_scores': mcc_scores,
+    'roc_scores': roc_scores,
+    'pr_scores' : pr_scores
+}
     
    
-# MAIN
-if __name__ == "__main__":
-
-    # TASK 1
-    development_df, train_df, val_df, evaluation_df = load_data_preprocessing()
-    metadata_cols, cpg_cols, target_col = get_feature_groups(train_df)
-    exploratory_analysis(train_df, val_df, evaluation_df, development_df)
-    
-    # TASK 2 - OLS
-    for feature_name in ["metadata", "cpg", "all"]:
-        print(f"\nRUNNING OLS FOR FEATURE SET: {feature_name.upper()}")
-        feature_cols      = get_feature_set(train_df, feature_set=feature_name)
-        X_train, y_train  = split_features_target(train_df, feature_cols, target_col)
-        X_val, y_val      = split_features_target(val_df, feature_cols, target_col)
-        selected_metadata = [col for col in metadata_cols if col in feature_cols]
-        selected_cpg      = [col for col in cpg_cols if col in feature_cols]
-        preprocessor      = build_preprocessor(selected_cpg, selected_metadata)
-        X_train_processed = preprocessor.fit_transform(X_train)
-        X_val_processed   = preprocessor.transform(X_val)
-        y_pred_OLS        = train_ols_model(X_train_processed, y_train, X_val_processed)
-        evaluate_model(y_val, y_pred_OLS)
-
-# TASK 2 - other models
-    feature_cols      = get_feature_set(train_df, feature_set="cpg")
-    X_train, y_train  = split_features_target(train_df, feature_cols, target_col)
-    X_val, y_val      = split_features_target(val_df, feature_cols, target_col)
-    selected_cpg      = [col for col in cpg_cols if col in feature_cols]
-    preprocessor      = build_preprocessor(selected_cpg, [])
-    X_train_processed = preprocessor.fit_transform(X_train)
-    X_val_processed   = preprocessor.transform(X_val)
-
-    y_pred_elastic         = train_elastic_net_model(X_train_processed, y_train, X_val_processed)
-    elastic_rmse, elastic_r2 = evaluate_model(y_val, y_pred_elastic)
-
-    y_pred_SVR             = train_SVR_model(X_train_processed, y_train, X_val_processed)
-    svr_rmse, svr_r2       = evaluate_model(y_val, y_pred_SVR)
-
-    y_pred_bayes           = train_BayesianRidge_model(X_train_processed, y_train, X_val_processed)
-    bayes_rmse, bayes_r2   = evaluate_model(y_val, y_pred_bayes)
-
-    # plot boxplots for all models
-    plot_bootstrap_boxplots(
-        [elastic_rmse, svr_rmse, bayes_rmse],
-        [elastic_r2,   svr_r2,   bayes_r2],
-        ["ElasticNet", "SVR", "BayesianRidge"]
-    )
-    # TASK 3.1
-    stable_features, counts = stability_selection(train_df)
-    plot_frequency(counts)
-    stable_cpg_cols = stable_features.index.tolist()
-    print("Stable features:", len(stable_cpg_cols))
-
-    # TASK 3.2
-    best_k  = choose_best_k(train_df, val_df)
-    mrmr_features = run_mrmr(train_df, K=best_k)
-    plot_overlap(stable_cpg_cols, mrmr_features)
-
-
-    # TASK 3.3
-    best_features, best_method = compare_feature_sets(train_df, val_df, stable_cpg_cols, mrmr_features)
-    print("\nBest feature selection method:", best_method)
-    print("Number of best features:", len(best_features))
-
-    # TASK 4.1
-    elastic_best, svr_best, bayes_best = tune_model(development_df, best_features)
-
-    # TASK 4.2
-    print("\nFINAL EVALUATION - ElasticNet")
-    elastic_results = evaluate_in_evaluation_data(elastic_best, evaluation_df, best_features)
-
-    print("\nFINAL EVALUATION - SVR")
-    svr_results = evaluate_in_evaluation_data(svr_best, evaluation_df, best_features)
-
-    print("\nFINAL EVALUATION - BayesianRidge")
-    bayes_results = evaluate_in_evaluation_data(bayes_best, evaluation_df, best_features)
-    
-    
-    # BONUS B
-    print("\n BONUS B-Sex Prediction")
-    train_df, evaluation_df = create_sex_label(train_df, evaluation_df)
-    sex_features = select_sex_features(train_df, K=best_k)
-    plot_sex_age_overlap(stable_cpg_cols, sex_features)
-    preprocessor = build_preprocessor(sex_features, [])
-    X_train_sex = preprocessor.fit_transform(train_df[sex_features])
-    X_eval_sex = preprocessor.transform(evaluation_df[sex_features])
-    y_train_sex = train_df["sex_label"]
-    y_eval_sex = evaluation_df["sex_label"]
-    lr, gnb = train_classifiers(X_train_sex, y_train_sex)
-    print("\nLogistic Regression")
-    lr_scores  = evaluate_classifier(lr, X_eval_sex, y_eval_sex)
-    print("\nGaussian Naive Bayes")
-    gnb_scores = evaluate_classifier(gnb, X_eval_sex, y_eval_sex)
-    
-    
