@@ -12,10 +12,10 @@ A full machine learning pipeline that cleans and preprocesses the data, tests di
 My best model (ElasticNet) predicted age with an average error of about 4.9 years on unseen data.
 
 ## Files
-- src/functions.py — all the functions I wrote
-- notebooks/data_exploration.ipynb — data loading and exploration
-- notebooks/model_analysis.ipynb — model training and evaluation
-- models/best_model.pkl — the saved best model
+- src/functions.py,all the functions I wrote
+- notebooks/data_exploration.ipynb, data loading and exploration
+- notebooks/model_analysis.ipynb, model training and evaluation
+- models/best_model.pkl, the saved best model
 
 ## How to run
 Put the data files in the data folder and run the notebooks in order.
